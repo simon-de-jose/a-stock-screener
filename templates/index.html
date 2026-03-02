@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A股选股平台</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, "Microsoft YaHei", sans-serif; background: #fff; color: #333; }
+.app { max-width: 600px; margin: 0 auto; padding: 16px; }
+
+/* 搜索栏 */
+.search-bar { display: flex; gap: 10px; margin-bottom: 20px; }
+.search-bar input {
+  flex: 1; padding: 12px 14px; border: 1px solid #ddd; border-radius: 6px; font-size: 15px; outline: none;
+}
+.search-btn {
+  padding: 12px 24px; border: none; background: #f0a030; color: #fff;
+  font-size: 15px; font-weight: 600; cursor: pointer; border-radius: 6px;
+}
+.search-btn:hover { background: #e09020; }
+
+/* 标签区 */
+.tags { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
+.tag {
+  padding: 8px 16px; border: 1.5px solid #999; border-radius: 6px;
+  font-size: 14px; cursor: pointer; user-select: none; background: #fff;
+  transition: all .15s;
+}
+.tag.active { border-color: #f0a030; color: #f0a030; position: relative; }
+.tag.active::after {
+  content: '✓'; position: absolute; top: -6px; right: -6px;
+  background: #f0a030; color: #fff; border-radius: 50%;
+  width: 16px; height: 16px; font-size: 10px;
+  display: flex; align-items: center; justify-content: center;
+}
+.tag:hover { border-color: #f0a030; }
+
+/* 自定义输入 */
+.custom-tag {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 4px 8px; border: 1.5px dashed #999; border-radius: 6px;
+  font-size: 14px; cursor: pointer;
+}
+.custom-input {
+  width: 60px; border: none; outline: none; font-size: 14px;
+  padding: 4px 0;
+}
+
+/* 匹配按钮 */
+.match-btn {
+  width: 100%; padding: 14px; border: none; border-radius: 8px;
+  background: #f0a030; color: #fff; font-size: 16px; font-weight: 600;
+  cursor: pointer; margin-bottom: 12px;
+}
+.match-btn:hover { background: #e09020; }
+.match-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* 同业公司按钮 */
+.peer-btn {
+  width: 100%; padding: 12px; border: none; border-radius: 8px;
+  background: #bbb; color: #fff; font-size: 15px; font-weight: 600;
+  cursor: pointer; margin-bottom: 16px;
+}
+.peer-btn:hover { background: #aaa; }
+
+/* 涨停开关 */
+.toggle-row {
+  display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+  font-size: 14px; color: #666;
+}
+.toggle {
+  position: relative; width: 44px; height: 24px; cursor: pointer;
+}
+.toggle input { display: none; }
+.toggle .slider {
+  position: absolute; inset: 0; background: #ccc; border-radius: 24px;
+  transition: .3s;
+}
+.toggle .slider::before {
+  content: ''; position: absolute; width: 18px; height: 18px;
+  left: 3px; bottom: 3px; background: #fff; border-radius: 50%;
+  transition: .3s;
+}
+.toggle input:checked + .slider { background: #f0a030; }
+.toggle input:checked + .slider::before { transform: translateX(20px); }
+
+/* 结果表格 */
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { padding: 8px 6px; text-align: left; color: #999; font-weight: 500; border-bottom: 1px solid #eee; }
+td { padding: 8px 6px; border-bottom: 1px solid #f5f5f5; }
+tr:hover td { background: #fafafa; }
+.limit-up { color: #e03030; font-weight: 600; }
+.concept-link { color: #f0a030; font-size: 12px; }
+.empty { text-align: center; padding: 30px; color: #bbb; }
+.result-count { font-size: 13px; color: #999; margin-bottom: 8px; }
+
+/* 消息 */
+.msg { padding: 10px; border-radius: 6px; margin-bottom: 12px; font-size: 13px; }
+.msg-error { background: #fef3f2; color: #b42318; }
+.msg-success { background: #ecfdf3; color: #067647; }
+.msg-info { background: #eff8ff; color: #175cd3; }
+</style>
+</head>
+<body>
+<div id="app" class="app">
+
+  <div v-if="msg" :class="['msg', 'msg-' + msgType]">[[ msg ]]</div>
+
+  <!-- 空数据库提示 -->
+  <div v-if="dbEmpty" style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:16px;margin-bottom:16px;text-align:center;">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px;">⚠️ 数据库为空</div>
+    <div style="font-size:13px;color:#666;margin-bottom:12px;">首次使用需要拉取A股数据，点击下方按钮开始（约5-10分钟）</div>
+    <button class="search-btn" style="border-radius:6px;padding:10px 30px;" @click="doRefresh" :disabled="refreshing">
+      [[ refreshing ? '拉取中...' : '开始拉取数据' ]]
+    </button>
+  </div>
+
+  <!-- 刷新进度条 -->
+  <div v-if="refreshing" style="background:#f8f9fa;border-radius:8px;padding:16px;margin-bottom:16px;">
+    <div style="font-size:13px;color:#666;margin-bottom:8px;">[[ refreshStep ]]</div>
+    <div style="background:#e9ecef;border-radius:4px;height:8px;overflow:hidden;">
+      <div :style="{width: refreshPercent + '%', background:'#f0a030', height:'100%', borderRadius:'4px', transition:'width 0.3s'}"></div>
+    </div>
+    <div style="font-size:12px;color:#999;margin-top:4px;text-align:right;">[[ refreshProgress ]]/[[ refreshTotal ]]</div>
+  </div>
+
+  <!-- 搜索 -->
+  <div class="search-bar">
+    <input v-model="stockName" placeholder="输入股票名称，如：洲际油气" @keyup.enter="doSearch" />
+    <button class="search-btn" @click="doSearch" :disabled="searching">查找</button>
+    <button class="search-btn" @click="doRefresh" :disabled="refreshing">[[ refreshing ? '刷新中...' : '刷新' ]]</button>
+  </div>
+
+  <!-- 所有标签混在一起（跟截图一致） -->
+  <div v-if="allTags.length" class="tags">
+    <span v-for="t in allTags" :key="t.key"
+      :class="['tag', selected.has(t.key) && 'active']"
+      @click="toggle(t.key)">[[ t.label ]]</span>
+    <!-- 自定义 -->
+    <span class="custom-tag" v-if="allTags.length">
+      <input class="custom-input" v-model="customWord" placeholder="自定义"
+        @keyup.enter="addCustom" />
+      <span style="cursor:pointer;color:#f0a030;" @click="addCustom">+</span>
+    </span>
+  </div>
+
+  <!-- 匹配 -->
+  <div v-if="allTags.length">
+    <button class="match-btn" @click="doMatch" :disabled="matching">
+      [[ matching ? '匹配中...' : '匹 配' ]]
+    </button>
+    <button class="peer-btn" @click="doPeer" v-if="stock">同业公司</button>
+  </div>
+
+  <!-- 涨停优先 -->
+  <div v-if="results !== null" class="toggle-row">
+    最近涨停优先
+    <label class="toggle">
+      <input type="checkbox" v-model="limitUpFirst" @change="sortResults" />
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <!-- 结果 -->
+  <div v-if="results !== null">
+    <div class="result-count">共 [[ results.length ]] 只</div>
+    <table v-if="results.length">
+      <thead><tr><th>股票名</th><th>现价</th><th>流通市值</th><th>概念</th></tr></thead>
+      <tbody>
+        <tr v-for="s in displayResults" :key="s.code">
+          <td :class="s.is_limit_up ? 'limit-up' : ''">[[ s.name ]]</td>
+          <td>[[ s.price?.toFixed(2) ?? '-' ]]</td>
+          <td>[[ formatCap(s.market_cap) ]]</td>
+          <td class="concept-link">[[ s.concept_names || '-' ]]</td>
+        </tr>
+      </tbody>
+    </table>
+    <div v-else class="empty">暂无匹配结果</div>
+  </div>
+</div>
+
+<script>
+const { createApp, ref, reactive, computed } = Vue
+
+createApp({
+  delimiters: ['[[', ']]'],
+  setup() {
+    const stockName = ref('')
+    const stock = ref(null)
+    const allTags = ref([])
+    const selected = reactive(new Set())
+    const customWord = ref('')
+    const customTags = ref([])
+
+    const dbEmpty = ref(false)
+    const refreshStep = ref('')
+    const refreshProgress = ref(0)
+    const refreshTotal = ref(0)
+    const refreshPercent = computed(() => refreshTotal.value > 0 ? Math.round(refreshProgress.value / refreshTotal.value * 100) : 0)
+
+    // Check DB status on load
+    fetch('/api/status').then(r => r.json()).then(d => { dbEmpty.value = d.empty })
+
+    const searching = ref(false)
+    const refreshing = ref(false)
+    const refreshMsg = ref('')
+    const matching = ref(false)
+    const results = ref(null)
+    const limitUpFirst = ref(false)
+
+    const msg = ref('')
+    const msgType = ref('info')
+
+    function showMsg(text, type = 'info') {
+      msg.value = text; msgType.value = type
+      setTimeout(() => { msg.value = '' }, 4000)
+    }
+
+    function formatCap(val) {
+      if (!val) return '-'
+      if (val >= 10000) return (val / 10000).toFixed(1) + '万亿'
+      return val.toFixed(0) + '亿'
+    }
+
+    function toggle(key) {
+      selected.has(key) ? selected.delete(key) : selected.add(key)
+    }
+
+    function addCustom() {
+      const w = customWord.value.trim()
+      if (!w) return
+      const key = 'char:' + w
+      customTags.value.push({ key, label: w, type: 'char' })
+      allTags.value.push({ key, label: w, type: 'char' })
+      selected.add(key)
+      customWord.value = ''
+    }
+
+    async function doSearch() {
+      const name = stockName.value.trim()
+      if (!name) return showMsg('请输入股票名称', 'error')
+      searching.value = true
+      results.value = null
+      selected.clear()
+      allTags.value = []
+      customTags.value = []
+      try {
+        const res = await fetch('/api/search?name=' + encodeURIComponent(name))
+        const data = await res.json()
+        if (data.error) {
+          showMsg(data.error, 'error')
+        } else {
+          stock.value = data.stock
+          const tags = []
+          // 拆字标签
+          data.chars.forEach(ch => {
+            const k = 'char:' + ch
+            tags.push({ key: k, label: ch, type: 'char' })
+          })
+          // 交易所标签
+          ;['主板', '创业板', '科创板', '北交所'].forEach(m => {
+            const k = 'market:' + m
+            tags.push({ key: k, label: m, type: 'market' })
+          })
+          // 概念标签
+          data.concepts.forEach(c => {
+            const k = 'concept:' + c.id
+            tags.push({ key: k, label: c.name, type: 'concept' })
+          })
+          allTags.value = tags
+          showMsg('请选择标签后点击匹配', 'success')
+        }
+      } catch (e) {
+        showMsg('请求失败: ' + e.message, 'error')
+      }
+      searching.value = false
+    }
+
+    async function doMatch() {
+      matching.value = true
+      try {
+        const chars = [], concepts = [], markets = []
+        for (const k of selected) {
+          if (k.startsWith('char:')) chars.push(k.slice(5))
+          else if (k.startsWith('concept:')) concepts.push(parseInt(k.slice(8)))
+          else if (k.startsWith('market:')) markets.push(k.slice(7))
+        }
+        const res = await fetch('/api/match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chars, concept_ids: concepts, markets, char_mode: 'or' }),
+        })
+        const data = await res.json()
+        results.value = data.results || []
+      } catch (e) {
+        showMsg('匹配失败: ' + e.message, 'error')
+      }
+      matching.value = false
+    }
+
+    async function doPeer() {
+      if (!stock.value) return
+      // 同业 = 同概念的所有股票
+      matching.value = true
+      const conceptIds = allTags.value
+        .filter(t => t.type === 'concept')
+        .map(t => parseInt(t.key.slice(8)))
+      try {
+        const res = await fetch('/api/match', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chars: [], concept_ids: conceptIds, markets: [], char_mode: 'or' }),
+        })
+        const data = await res.json()
+        results.value = data.results || []
+      } catch (e) {
+        showMsg('查询失败: ' + e.message, 'error')
+      }
+      matching.value = false
+    }
+
+    function sortResults() {}
+
+    const displayResults = computed(() => {
+      if (!results.value) return []
+      const arr = [...results.value]
+      if (limitUpFirst.value) {
+        arr.sort((a, b) => (b.is_limit_up || 0) - (a.is_limit_up || 0))
+      }
+      return arr
+    })
+
+    async function doRefresh() {
+      refreshing.value = true
+      try {
+        await fetch('/api/refresh', { method: 'POST' })
+        // Poll progress
+        const poll = setInterval(async () => {
+          try {
+            const res = await fetch('/api/refresh/progress')
+            const d = await res.json()
+            refreshStep.value = d.step || ''
+            refreshProgress.value = d.progress || 0
+            refreshTotal.value = d.total || 0
+            if (d.done || (!d.running && refreshProgress.value > 0)) {
+              clearInterval(poll)
+              refreshing.value = false
+              if (d.error) {
+                showMsg(d.error, 'error')
+              } else {
+                showMsg(d.step || '数据刷新完成！', 'success')
+              }
+              // Re-check DB status
+              fetch('/api/status').then(r => r.json()).then(s => { dbEmpty.value = s.empty })
+            }
+          } catch(e) {}
+        }, 1000)
+      } catch (e) {
+        showMsg('刷新失败: ' + e.message, 'error')
+        refreshing.value = false
+      }
+    }
+
+    return {
+      stockName, stock, allTags, selected, customWord, customTags,
+      searching, matching, results, limitUpFirst,
+      msg, msgType, displayResults,
+      showMsg, formatCap, toggle, addCustom,
+      doSearch, doMatch, doPeer, doRefresh, refreshing,
+      dbEmpty, refreshStep, refreshProgress, refreshTotal, refreshPercent, sortResults,
+    }
+  }
+}).mount('#app')
+</script>
+</body>
+</html>
